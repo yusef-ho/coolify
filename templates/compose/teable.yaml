@@ -1,0 +1,91 @@
+# documentation: https://github.com/teableio/teable
+# slogan: ✨ The Next Gen Airtable Alternative: No-Code Postgres
+# tags: secret,secretops
+# icon: svgs/teable.svg
+# port: 3000
+
+version: "3"
+
+x-environment: &environment
+  TIMEZONE: ${TIMEZONE:-UTC}
+
+  # Postgres
+  POSTGRES_HOST: ${POSTGRES_HOST:-teable-db}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-example}
+  POSTGRES_USER: ${POSTGRES_USER:-example}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-example2password}
+
+  # App
+  PUBLIC_ORIGIN: $SERVICE_FQDN_TEABLE_3000
+  PRISMA_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+  PUBLIC_DATABASE_PROXY: 127.0.0.1:42345
+
+  # Need to support sending emails to enable the following configurations
+  # You need to modify the configuration according to the actual situation, otherwise it will not be able to send emails correctly.
+  #BACKEND_MAIL_HOST=smtp.teable.io
+  #BACKEND_MAIL_PORT=465
+  #BACKEND_MAIL_SECURE=true
+  #BACKEND_MAIL_SENDER=noreply.teable.io
+  #BACKEND_MAIL_SENDER_NAME=Teable
+  #BACKEND_MAIL_AUTH_USER=username
+  #BACKEND_MAIL_AUTH_PASS=password
+
+services:
+  teable:
+    image: ghcr.io/teableio/teable:latest
+    restart: always
+    # ports:
+    #   - '3000:3000'
+    volumes:
+      - teable-data:/app/.assets:rw
+      # you may use a bind-mounted host directory instead,
+      # so that it is harder to accidentally remove the volume and lose all your data!
+      # - ./docker/teable/data:/app/.assets:rw
+    # env_file:
+    #   - .env
+    environment:
+      NEXT_ENV_IMAGES_ALL_REMOTE: true
+      SERVICE_FQDN_TEABLE_3000:
+      <<: *environment
+    networks:
+      - teable-standalone
+    depends_on:
+      teable-db-migrate:
+        condition: service_completed_successfully
+
+  teable-db:
+    image: postgres:15.4
+    restart: always
+    ports:
+      - '42345:5432'
+    volumes:
+      - teable-db:/var/lib/postgresql/data:rw
+      # you may use a bind-mounted host directory instead,
+      # so that it is harder to accidentally remove the volume and lose all your data!
+      # - ./docker/db/data:/var/lib/postgresql/data:rw
+    environment:
+      <<: *environment
+    networks:
+      - teable-standalone
+    healthcheck:
+      test: ['CMD-SHELL', "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  teable-db-migrate:
+    image: ghcr.io/teableio/teable-db-migrate:latest
+    environment:
+      <<: *environment
+    networks:
+      - teable-standalone
+    restart: no
+    depends_on:
+      teable-db:
+        condition: service_healthy
+
+networks:
+  teable-standalone:
+    name: teable-standalone-network
+    driver: bridge
